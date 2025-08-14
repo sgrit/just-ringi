@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "稟議番号で検索",
+  "version": "1.0",
+  "description": "稟議番号/申請IDを入力して、明細ページを開きます。",
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon.png",
+      "32": "icon.png",
+      "48": "icon.png",
+      "128": "icon-128.png"
+    }
+  },
+  "permissions": ["scripting"],
+  "host_permissions": [
+    "https://ssl.wf.jobcan.jp/*"
+  ]
+}
