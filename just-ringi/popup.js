@@ -9,149 +9,82 @@ document.getElementById('ringi-number').addEventListener('keypress', function(ev
     }
 });
 
-// いつかこの階層の深いコードを誰か綺麗にしてください。
-function handleSubmit() {
-	const ringiNumber = document.getElementById('ringi-number').value;
-	if (ringiNumber) {
-		// ユーザの情報取得 閲覧可能な稟議と共有された稟議ではx-jbcwf-userヘッダーでprimary_group_idが必要なので。
-		const apiUrl_login_user = `https://ssl.wf.jobcan.jp/api/v1/login_user/`;
-		let primary_group;
-		fetch(apiUrl_login_user)
-			.then(response => {
-				if (!response.ok) {
-					throw new Error('Network response was not ok');
-				}
-				return response.json();
-			})
-			.then(data => {
-				primary_group = data.primary_group.id;
-				//alert('primary_group= ' + primary_group );
-				const myHeaders = new Headers();
-				myHeaders.append("x-jbcwf-user", `{"primary_group_id":${primary_group}}`);
+async function handleSubmit() {
+  const ringiNumber = document.getElementById('ringi-number').value;
+  if (!ringiNumber) {
+    alert('稟議番号/申請IDを入力して下さい');
+    return;
+  }
 
-				// "承認する"に分類される申請
-				const apiUrl_myapprovals =
-					`https://ssl.wf.jobcan.jp/api/v1/myapprovals/?page=1&req_id=${ringiNumber}&req_per_page=20&req_status=9&show_cancel_request=true&sort_key=updated_at__desc`;
-				fetch(apiUrl_myapprovals, {
-						headers: myHeaders
-					})
-					.then(response => {
-						if (!response.ok) {
-							throw new Error('Network response was not ok');
-						}
-						return response.json();
-					})
-					.then(data => {
-						if (data.count > 0 && data.requests && data.requests.length > 0) {
-							const cuid = data.requests[0].cuid; // 最初のリクエストのcuidを取得
+  try {
+    // ユーザー情報取得（primary_group が必要）
+    const loginUserUrl = 'https://ssl.wf.jobcan.jp/api/v1/login_user/';
+    const loginUserRes = await fetch(loginUserUrl);
+    if (!loginUserRes.ok) {
+      alert('まだログインしていないようです。\n一度ログインしてから再度お試し下さい')
+      chrome.tabs.create({ url: `https://ssl.wf.jobcan.jp/#` });
+      return;
+    }
+    const loginUserData = await loginUserRes.json();
+    const primaryGroupId = loginUserData.primary_group.id;
 
-							// 明細ページのURLを作成
-							const detailUrl = `https://ssl.wf.jobcan.jp/#/requests/${cuid}`;
-							chrome.tabs.create({
-								url: detailUrl
-							});
-						} else {
-							// "閲覧できる"に分類される申請
-							const apiUrl_circulation =
-								`https://ssl.wf.jobcan.jp/api/v1/requests/circulation/?page=1&req_id=${ringiNumber}&req_per_page=20&req_status=9&show_cancel_request=true&sort_key=request_date__desc`;
-							fetch(apiUrl_circulation, {
-									headers: myHeaders
-								})
-								.then(response => {
-									if (!response.ok) {
-										// alert(JSON.stringify(response));
-										throw new Error('Network response was not ok');
-									}
-									return response.json();
-								})
-								.then(data => {
-									if (data.count > 0 && data.requests && data.requests.length > 0) {
-										const cuid = data.requests[0].cuid; // 最初のリクエストのcuidを取得
+    const myHeaders = new Headers();
+    myHeaders.append('x-jbcwf-user', JSON.stringify({ primary_group_id: primaryGroupId }));
 
-										// 明細ページのURLを作成
-										const detailUrl = `https://ssl.wf.jobcan.jp/#/requests/${cuid}`;
-										chrome.tabs.create({
-											url: detailUrl
-										});
-									} else {
-										// "共有された"に分類される申請
-										const apiUrl_share =
-											`https://ssl.wf.jobcan.jp/api/v1/requests/share/?page=1&req_id=${ringiNumber}&req_per_page=20&req_status=9&share_type=shared&show_cancel_request=true&sort_key=share_date__desc`;
-										fetch(apiUrl_share, {
-												headers: myHeaders
-											})
-											.then(response => {
-												if (!response.ok) {
-													throw new Error('Network response was not ok');
-												}
-												return response.json();
-											})
-											.then(data => {
-												if (data.count > 0 && data.requests && data.requests.length > 0) {
-													const cuid = data.requests[0].cuid; // 最初のリクエストのcuidを取得
+    // 各 API エンドポイントの URL を順に試す (1.承認対象の申請、2.共有された申請、3.閲覧できる申請、4.自分の申請)
+    const endpoints = [
+      {
+        url: `https://ssl.wf.jobcan.jp/api/v1/myapprovals/?page=1&req_id=${ringiNumber}&req_per_page=20&req_status=9&show_cancel_request=true&sort_key=updated_at__desc`,
+        errorMessage: 'error myapprovals',
+        endpointDescription: 'myapprovals:【承認する】から申請を検索するためのAPI',
+        sampleRingiNumber: 'HD-TRA-1147'
+      },
+      {
+        url: `https://ssl.wf.jobcan.jp/api/v1/requests/circulation/?page=1&req_id=${ringiNumber}&req_per_page=20&req_status=9&show_cancel_request=true&sort_key=request_date__desc`,
+        errorMessage: 'error circulation',
+        endpointDescription: 'circulation:【閲覧できる申請一覧】から検索するためのAPI',
+        sampleRingiNumber: 'BMJOB-544'
+      },
+      {
+        url: `https://ssl.wf.jobcan.jp/api/v1/requests/share/?page=1&req_id=${ringiNumber}&req_per_page=20&req_status=9&share_type=shared&show_cancel_request=true&sort_key=share_date__desc`,
+        errorMessage: 'error share',
+        endpointDescription: 'share:【共有された申請一覧】から検索するためのAPI',
+        sampleRingiNumber: 'RBHSP-4003'
+      },
+      {
+        url: `https://ssl.wf.jobcan.jp/api/v1/myrequests/?page=1&req_id=${ringiNumber}&req_per_page=20&req_status=9&show_cancel_request=true&sort_key=request_date__desc`,
+        errorMessage: 'error myrequests',
+        endpointDescription: 'myrequests:【自分の申請一覧】から検索するためのAPI',
+        sampleRingiNumber: 'RBHSP-3964'
+      }
+    ];
 
-													// 明細ページのURLを作成
-													const detailUrl = `https://ssl.wf.jobcan.jp/#/requests/${cuid}`;
-													chrome.tabs.create({
-														url: detailUrl
-													});
-												} else {
-													// "自分の申請"に分類される申請
-													const apiUrl_myrequests =
-														`https://ssl.wf.jobcan.jp/api/v1/myrequests/?page=1&req_id=${ringiNumber}&req_per_page=20&req_status=9&show_cancel_request=true&sort_key=request_date__desc`;
-													fetch(apiUrl_myrequests, {
-															headers: myHeaders
-														})
-														.then(response => {
-															if (!response.ok) {
-																throw new Error('Network response was not ok');
-															}
-															return response.json();
-														})
-														.then(data => {
-															if (data.count > 0 && data.requests && data.requests.length >
-																0) {
-																const cuid = data.requests[0].cuid; // 最初のリクエストのcuidを取得
-																// 明細ページのURLを作成
-																const detailUrl = `https://ssl.wf.jobcan.jp/#/requests/${cuid}`;
-																chrome.tabs.create({
-																	url: detailUrl
-																});
-															} else {
-																alert('番号に対応する稟議/申請が見つかりませんでした');
-															}
-														})
-														.catch(error => {
-															console.error('There has been a problem with your fetch operation:', error);
-															alert('error share');
-														});
-												}
-											})
-											.catch(error => {
-												console.error('There has been a problem with your fetch operation:', error);
-												alert('error share');
-											});
-									}
-								})
-								.catch(error => {
-									console.error('There has been a problem with your fetch operation:', error);
-									alert('error circulation');
-								});
-						}
-					})
-					.catch(error => {
-						console.error('There has been a problem with your fetch operation:',
-							error);
-						alert('error myapprovals');
-					});
-			})
-			.catch(error => {
-				console.error('There has been a problem with your fetch operation:',
-					error);
-				alert('error login_user');
-			});
+    let detailUrl = null;
+    for (const endpoint of endpoints) {
+      try {
+        const res = await fetch(endpoint.url, { headers: myHeaders });
+        if (!res.ok) {
+          throw new Error(endpoint.errorMessage);
+        }
+        const data = await res.json();
+        if (data.count > 0 && data.requests && data.requests.length > 0) {
+          const cuid = data.requests[0].cuid; // 先頭のリクエストから cuid を取得
+          detailUrl = `https://ssl.wf.jobcan.jp/#/requests/${cuid}`;
+          break; // 該当する申請が見つかったらループ終了
+        }
+      } catch (error) {
+        console.error(`Fetch error for endpoint ${endpoint.url}:`, error);
+        // エラー発生時は次のエンドポイントへ進む
+      }
+    }
 
-	} else {
-		alert('稟議番号/申請IDを入力してください');
-	}
+    if (detailUrl) {
+      chrome.tabs.create({ url: detailUrl });
+    } else {
+      alert('番号に対応する稟議/申請が見つかりませんでした');
+    }
+  } catch (error) {
+    console.error('There has been a problem with your fetch operation:', error);
+    alert('通信エラーが発生しました');
+  }
 }
