@@ -12,7 +12,7 @@
       "128": "icon-128.png"
     }
   },
-  "permissions": ["scripting"],
+  "permissions": [],
   "host_permissions": [
     "https://ssl.wf.jobcan.jp/*"
   ]
